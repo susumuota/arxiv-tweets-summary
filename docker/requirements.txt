@@ -1,0 +1,8 @@
+pandas==1.5.2
+python-dateutil==2.8.2
+google-cloud-storage==2.6.0
+tweepy==4.12.1
+arxiv==1.4.2
+deepl==1.11.0
+pysbd==0.3.4
+slack-sdk==3.19.4
