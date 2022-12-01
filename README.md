@@ -61,9 +61,13 @@ Application settings.
 
 ```sh
 export TWITTER_BEARER_TOKEN="secret info"
-export SLACK_BOT_TOKEN="secret info"
+export TWITTER_API_KEY="secret info"
+export TWITTER_API_KEY_SECRET="secret info"
+export TWITTER_ACCESS_TOKEN="secret info"
+export TWITTER_ACCESS_TOKEN_SECRET="secret info"
 export DEEPL_AUTH_KEY="secret info"
-export SEARCH_PAGE_LIMIT="1"  # 150 on production env
+export SLACK_BOT_TOKEN="secret info"
+export SEARCH_PAGE_LIMIT="5"  # 150 on production env
 export NOTIFY_TOP_N="5"       # 20 on production env
 export SLACK_CHANNEL="#test"  # #anywhere on production env
 ```
@@ -77,6 +81,10 @@ export IMAGE_NAME="arxiv-tweets-summary"
 docker build -t $IMAGE_NAME .
 docker run --rm \
   -e TWITTER_BEARER_TOKEN=$TWITTER_BEARER_TOKEN \
+  -e TWITTER_API_KEY=$TWITTER_API_KEY \
+  -e TWITTER_API_KEY_SECRET=$TWITTER_API_KEY_SECRET \
+  -e TWITTER_ACCESS_TOKEN=$TWITTER_ACCESS_TOKEN \
+  -e TWITTER_ACCESS_TOKEN_SECRET=$TWITTER_ACCESS_TOKEN_SECRET \
   -e DEEPL_AUTH_KEY=$DEEPL_AUTH_KEY \
   -e SLACK_BOT_TOKEN=$SLACK_BOT_TOKEN \
   -e SEARCH_PAGE_LIMIT=$SEARCH_PAGE_LIMIT \
@@ -134,6 +142,18 @@ gcloud services enable secretmanager.googleapis.com
 echo -n $TWITTER_BEARER_TOKEN | gcloud secrets create "TWITTER_BEARER_TOKEN" \
   --replication-policy="automatic" \
   --data-file=-
+echo -n $TWITTER_API_KEY | gcloud secrets create "TWITTER_API_KEY" \
+  --replication-policy="automatic" \
+  --data-file=-
+echo -n $TWITTER_API_KEY_SECRET | gcloud secrets create "TWITTER_API_KEY_SECRET" \
+  --replication-policy="automatic" \
+  --data-file=-
+echo -n $TWITTER_ACCESS_TOKEN | gcloud secrets create "TWITTER_ACCESS_TOKEN" \
+  --replication-policy="automatic" \
+  --data-file=-
+echo -n $TWITTER_ACCESS_TOKEN_SECRET | gcloud secrets create "TWITTER_ACCESS_TOKEN_SECRET" \
+  --replication-policy="automatic" \
+  --data-file=-
 echo -n $DEEPL_AUTH_KEY | gcloud secrets create "DEEPL_AUTH_KEY" \
   --replication-policy="automatic" \
   --data-file=-
@@ -142,9 +162,17 @@ echo -n $SLACK_BOT_TOKEN | gcloud secrets create "SLACK_BOT_TOKEN" \
   --data-file=-
 gcloud secrets list
 gcloud secrets versions access 1 --secret="TWITTER_BEARER_TOKEN"
+gcloud secrets versions access 1 --secret="TWITTER_API_KEY"
+gcloud secrets versions access 1 --secret="TWITTER_API_KEY_SECRET"
+gcloud secrets versions access 1 --secret="TWITTER_ACCESS_TOKEN"
+gcloud secrets versions access 1 --secret="TWITTER_ACCESS_TOKEN_SECRET"
 gcloud secrets versions access 1 --secret="DEEPL_AUTH_KEY"
 gcloud secrets versions access 1 --secret="SLACK_BOT_TOKEN"
 # gcloud secrets delete "TWITTER_BEARER_TOKEN"
+# gcloud secrets delete "TWITTER_API_KEY"
+# gcloud secrets delete "TWITTER_API_KEY_SECRET"
+# gcloud secrets delete "TWITTER_ACCESS_TOKEN"
+# gcloud secrets delete "TWITTER_ACCESS_TOKEN_SECRET"
 # gcloud secrets delete "DEEPL_AUTH_KEY"
 # gcloud secrets delete "SLACK_BOT_TOKEN"
 # gcloud services disable secretmanager.googleapis.com
@@ -158,6 +186,18 @@ gcloud secrets versions access 1 --secret="SLACK_BOT_TOKEN"
 gcloud secrets add-iam-policy-binding "TWITTER_BEARER_TOKEN" \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
+gcloud secrets add-iam-policy-binding "TWITTER_API_KEY" \
+  --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+gcloud secrets add-iam-policy-binding "TWITTER_API_KEY_SECRET" \
+  --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+gcloud secrets add-iam-policy-binding "TWITTER_ACCESS_TOKEN" \
+  --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+gcloud secrets add-iam-policy-binding "TWITTER_ACCESS_TOKEN_SECRET" \
+  --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
 gcloud secrets add-iam-policy-binding "DEEPL_AUTH_KEY" \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
@@ -165,9 +205,25 @@ gcloud secrets add-iam-policy-binding "SLACK_BOT_TOKEN" \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 gcloud secrets get-iam-policy "TWITTER_BEARER_TOKEN"
+gcloud secrets get-iam-policy "TWITTER_API_KEY"
+gcloud secrets get-iam-policy "TWITTER_API_KEY_SECRET"
+gcloud secrets get-iam-policy "TWITTER_ACCESS_TOKEN"
+gcloud secrets get-iam-policy "TWITTER_ACCESS_TOKEN_SECRET"
 gcloud secrets get-iam-policy "DEEPL_AUTH_KEY"
 gcloud secrets get-iam-policy "SLACK_BOT_TOKEN"
 # gcloud secrets remove-iam-policy-binding "TWITTER_BEARER_TOKEN" \
+#   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
+#   --role="roles/secretmanager.secretAccessor"
+# gcloud secrets remove-iam-policy-binding "TWITTER_API_KEY" \
+#   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
+#   --role="roles/secretmanager.secretAccessor"
+# gcloud secrets remove-iam-policy-binding "TWITTER_API_KEY_SECRET" \
+#   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
+#   --role="roles/secretmanager.secretAccessor"
+# gcloud secrets remove-iam-policy-binding "TWITTER_ACCESS_TOKEN" \
+#   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
+#   --role="roles/secretmanager.secretAccessor"
+# gcloud secrets remove-iam-policy-binding "TWITTER_ACCESS_TOKEN_SECRET" \
 #   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
 #   --role="roles/secretmanager.secretAccessor"
 # gcloud secrets remove-iam-policy-binding "DEEPL_AUTH_KEY" \
@@ -215,12 +271,21 @@ gcloud builds list --region=$REGION
 
 ## Test a Docker image on local machine
 
+**This process may increase charge because of data transfer.**
+
 - https://cloud.google.com/build/docs/building/build-containers#run_the_docker_image
+- https://cloud.google.com/artifact-registry/pricing
+- https://support.terra.bio/hc/en-us/articles/4408985788187-How-to-configure-GCR-Artifact-Registry-to-prevent-egress-charges
+
 
 ```sh
 gcloud auth configure-docker ${REGION}-docker.pkg.dev
 docker run --rm \
   -e TWITTER_BEARER_TOKEN=$TWITTER_BEARER_TOKEN \
+  -e TWITTER_API_KEY=$TWITTER_API_KEY \
+  -e TWITTER_API_KEY_SECRET=$TWITTER_API_KEY_SECRET \
+  -e TWITTER_ACCESS_TOKEN=$TWITTER_ACCESS_TOKEN \
+  -e TWITTER_ACCESS_TOKEN_SECRET=$TWITTER_ACCESS_TOKEN_SECRET \
   -e DEEPL_AUTH_KEY=$DEEPL_AUTH_KEY \
   -e SLACK_BOT_TOKEN=$SLACK_BOT_TOKEN \
   -e SEARCH_PAGE_LIMIT=$SEARCH_PAGE_LIMIT \
@@ -238,6 +303,8 @@ docker images
 
 - https://cloud.google.com/run/docs/create-jobs#command-line
 
+Change parameters for production env.
+
 ```sh
 export SEARCH_PAGE_LIMIT="150"    # 1 on development env
 export NOTIFY_TOP_N="20"          # 5 on development env
@@ -252,6 +319,10 @@ gcloud beta run jobs create $RUN_JOB_NAME \
   --region=$REGION \
   --service-account="${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --set-secrets="TWITTER_BEARER_TOKEN=TWITTER_BEARER_TOKEN:1" \
+  --set-secrets="TWITTER_API_KEY=TWITTER_API_KEY:1" \
+  --set-secrets="TWITTER_API_KEY_SECRET=TWITTER_API_KEY_SECRET:1" \
+  --set-secrets="TWITTER_ACCESS_TOKEN=TWITTER_ACCESS_TOKEN:1" \
+  --set-secrets="TWITTER_ACCESS_TOKEN_SECRET=TWITTER_ACCESS_TOKEN_SECRET:1" \
   --set-secrets="DEEPL_AUTH_KEY=DEEPL_AUTH_KEY:1" \
   --set-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:1" \
   --set-env-vars="SEARCH_PAGE_LIMIT=${SEARCH_PAGE_LIMIT}" \
