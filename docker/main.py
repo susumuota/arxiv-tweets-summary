@@ -1,7 +1,12 @@
 import datetime
+from itertools import zip_longest
 import os
 import re
+from shlex import quote
+import subprocess
+import tempfile
 import time
+import unicodedata
 
 import pandas as pd
 import dateutil.parser
@@ -11,8 +16,50 @@ import arxiv
 import deepl
 import pysbd
 from slack_sdk import WebClient
+import imgkit
 
 import deeplcache
+
+HTML_TEMPLATE = '''
+<html>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      body {{
+        font-size: 24px;
+        margin: 2em;
+      }}
+      .translation {{
+        color: black;
+      }}
+      .source {{
+        color: blue;
+      }}
+    </style>
+  </head>
+  <body>
+    {body}
+  </body>
+</html>
+'''
+
+HTML_ITEM_TEMPLATE = '''
+<p class="item">
+  <span class="translation">
+    {translation}
+  </span>
+  <br />
+  <span class="source">
+    {source}
+  </span>
+</p>
+'''
+
+def generate_html(trans_texts, summary_texts):
+  items = map(
+    lambda item: HTML_ITEM_TEMPLATE.format(translation=item[0], source=item[1]),
+    zip_longest(trans_texts, summary_texts, fillvalue=''))
+  return HTML_TEMPLATE.format(body='\n'.join(items))
 
 def search_recent_tweets(api, query, since_id=None, page_limit=1):
   """https://docs.tweepy.org/en/stable/client.html#tweepy.Client.search_recent_tweets"""
@@ -25,7 +72,7 @@ def search_recent_tweets(api, query, since_id=None, page_limit=1):
   tweets = []
   users = []
   meta = {'newest_id': None, 'oldest_id': None, 'result_count': 0, 'next_token': None}
-  for response in tweepy.Paginator(api.search_recent_tweets, query=query, max_results=max_results, since_id=since_id, expansions=expansions, tweet_fields=tweet_fields, limit=page_limit):
+  for response in tweepy.Paginator(api.search_recent_tweets, query=query, max_results=max_results, since_id=since_id, expansions=expansions, tweet_fields=tweet_fields, limit=page_limit, user_auth=False):
     if response.data:  # type: ignore
       tweets.extend([t.data for t in response.data])  # type: ignore
     if response.includes and 'users' in response.includes:  # type: ignore
@@ -37,7 +84,7 @@ def search_recent_tweets(api, query, since_id=None, page_limit=1):
     meta['oldest_id'] = response.meta['oldest_id'] if 'oldest_id' in response.meta else meta['oldest_id']  # type: ignore  # TODO: reversed order
   return {'data': tweets, 'includes': {'users': get_unique_list(users)}, 'meta': meta}
 
-def parse_tweets(tweets):
+def convert_to_dfs(tweets):
   """parse result of search_recent_tweets result to DataFrame"""
   def extract(df, field):
     """extract multiple values field"""
@@ -46,7 +93,7 @@ def parse_tweets(tweets):
       df[['id', field]].apply(lambda x: [results.append({'id': x[0], field: u}) for u in x[1]] if type(x[1]) is list else None, axis=1)
     results_df = pd.json_normalize(results)
     results_df = results_df.fillna(0) # because (np.nan == np.nan) is False
-    results_df = results_df.rename(columns={c: re.sub(f'{field}\.', r'', c) if c != f'{field}.id' else c for c in results_df.columns}) # 'id' must be tweet id
+    results_df = results_df.rename(columns={c: re.sub(f'{field}.', r'', c) if c != f'{field}.id' else c for c in results_df.columns}) # 'id' must be tweet id
     return results_df
   meta_df = pd.json_normalize(tweets['meta'])
   users_df = pd.json_normalize(tweets['includes']['users'])
@@ -76,11 +123,11 @@ def expand_tweets_text(tweets_df, urls_df):
 # https://arxiv.org/help/arxiv_identifier
 ARXIV_URL_PATTERN = re.compile(r'^https?://arxiv\.org/(abs|pdf)/([0-9]{4}\.[0-9]{4,6})(v[0-9]+)?(\.pdf)?$')
 
-def parse_arxiv(tweets_df, users_df, urls_df):
+def get_arxiv_stats(tweets_df, users_df, urls_df):
   urls = urls_df[['expanded_url', 'unwound_url']].apply(lambda x: x[1] if x[1] != 0 else x[0], axis=1)
   arxiv_ids_df = pd.concat([urls_df['id'], urls.str.extract(ARXIV_URL_PATTERN)[1].rename('arxiv_id')], axis=1).dropna().drop_duplicates()
   arxiv_ids_group = pd.merge(arxiv_ids_df, pd.merge(tweets_df, users_df, on='author_id'), on='id').groupby('arxiv_id')
-  arxiv_ids_sum = arxiv_ids_group.sum().reset_index()
+  arxiv_ids_sum = arxiv_ids_group.sum(numeric_only=True).reset_index()
   arxiv_ids_count = arxiv_ids_group['id'].count().reset_index().rename(columns={'id': 'tweet_count'})
   arxiv_stats_df = pd.concat([arxiv_ids_sum, arxiv_ids_count['tweet_count']], axis=1).sort_values(by=['like_count', 'retweet_count', 'quote_count', 'reply_count', 'tweet_count'], ascending=False)
   #arxiv_tweets_df = pd.merge(arxiv_ids_df, pd.merge(tweets_df, users_df, on='author_id'), on='id') # fast
@@ -112,7 +159,7 @@ def arxiv_result_to_dict(r):
     'pdf_url': r.pdf_url
   }
 
-def search_arxiv(id_list, chunk_size=100):
+def search_arxiv_contents(id_list, chunk_size=100):
   rs = []
   cdr = id_list
   for i in range(1+len(id_list)//chunk_size):
@@ -123,26 +170,26 @@ def search_arxiv(id_list, chunk_size=100):
         search = arxiv.Search(id_list=car, max_results=len(car))
         r = list(search.results())
         rs.extend(r)
-        print(i, len(r), len(rs))
+        print('search_arxiv_contents: ', i, len(r), len(rs))
       except Exception as e:
         print(e)
   return [arxiv_result_to_dict(r) for r in rs]
 
-def translate_arxiv(dlc, arxiv_stats, arxiv_results, target_lang, top_n, max_summary):
-    df = pd.merge(arxiv_stats['arxiv_stats'], pd.json_normalize(arxiv_results), on='arxiv_id').head(top_n)
+def translate_arxiv(dlc, df, target_lang, max_summary):
     seg = pysbd.Segmenter(language='en', clean=False)
-    print(len(dlc.cache))
+    print('translate_arxiv: before: ', len(dlc.cache))
     print(dlc.translator.get_usage())
     for arxiv_id, summary in zip(df['arxiv_id'], df['summary']):
       summary = summary.replace('\n', ' ')[:max_summary]
       summary_texts = seg.segment(summary)
       trans_texts, trans_ts = dlc.translate_text(summary_texts, target_lang, arxiv_id)
-      print(arxiv_id, sum([len(s) for s in summary_texts]), sum([len(t) for t in trans_texts]), trans_ts)
-    print(len(dlc.cache))
+      print('translate_arxiv: ', arxiv_id, sum([len(s) for s in summary_texts]), sum([len(t) for t in trans_texts]), trans_ts)
+    print('translate_arxiv: after: ', len(dlc.cache))
     print(dlc.translator.get_usage())
     return dlc
 
-def post_arxiv_blocks(api, channel, df, arxiv_tweets_df, dlc, max_summary):
+def post_to_slack(api, channel, df, arxiv_tweets_df, dlc, max_summary):
+  df = df[::-1]  # reverse order
   def strip(s, l):
     return s[:l-3] + '...' if len(s) > l else s
   text = f'Top {len(df)} most popular arXiv papers in the last 7 days'
@@ -172,7 +219,7 @@ def post_arxiv_blocks(api, channel, df, arxiv_tweets_df, dlc, max_summary):
     categories_md = ' | '.join([f'<https://arxiv.org/list/{c}/recent|{c}>' for c in [primary_category] + [c for c in categories if c != primary_category and re.match(r'\w+\.\w+$', c)]])
     stats_md = f'_*{like_count}* Likes, {retweet_count} Retweets, {quote_count} Quotes, {replay_count} Replies, {tweet_count} Tweets_'
     updated_md = dateutil.parser.isoparse(updated).strftime('%d %b %Y')
-    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'[{i+1}/{len(df)}] {is_new_md}*{title_md}*\n{stats_md}, {categories_md}, {updated_md}\n{first_summary}'}}]
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'[{len(df)-i}/{len(df)}] {is_new_md}*{title_md}*\n{stats_md}, {categories_md}, {updated_md}\n{first_summary}'}}]
     response = api.chat_postMessage(channel=channel, text=title_md, blocks=blocks)
     time.sleep(1)
     ts = response['ts']
@@ -189,49 +236,186 @@ def post_arxiv_blocks(api, channel, df, arxiv_tweets_df, dlc, max_summary):
     response = api.chat_postMessage(channel=channel, text=title_md, blocks=blocks, thread_ts=ts)
     time.sleep(1)
     tw = arxiv_tweets_df[arxiv_tweets_df['arxiv_id'] == arxiv_id].sort_values(by=['like_count', 'retweet_count', 'quote_count', 'reply_count'], ascending=False)
-    post_tweets_blocks(api, channel, ts, tw.head(5))
-    print(f'[{i+1}/{len(df)}]')
+    post_to_slack_tweets(api, channel, ts, tw.head(5))
+    print('post_to_slack: ', f'[{len(df)-i}/{len(df)}]')
 
-def post_tweets_blocks(api, channel, ts, df):
+def post_to_slack_tweets(api, channel, ts, df):
   for i, (tweet_id, expanded_text, created_at, username, name, like_count, retweet_count, quote_count, replay_count) in enumerate(zip(df['id'], df['expanded_text'], df['created_at'], df['username'], df['name'], df['like_count'], df['retweet_count'], df['quote_count'], df['reply_count'])):
     blocks = []
     stats_md = f'_*{like_count}* Likes, {retweet_count} Retweets, {quote_count} Quotes, {replay_count} Replies_'
     created_at_md = dateutil.parser.isoparse(created_at).strftime('%d %b')
     url_md = f'<https://twitter.com/{username}/status/{tweet_id}|{created_at_md}>'
-    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'[{i+1}/{len(df)}] {stats_md}, {url_md}\n'}}]
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'({i+1}/{len(df)}) {stats_md}, {url_md}\n'}}]
     response = api.chat_postMessage(channel=channel, text=url_md, thread_ts=ts, blocks=blocks)
+    time.sleep(1)
+
+def download_arxiv_pdf(arxiv_id, tmp_dir):
+  dir = quote(tmp_dir)
+  output = quote(f'{arxiv_id}.pdf')
+  url = quote(f'https://arxiv.org/pdf/{arxiv_id}.pdf')
+  result = subprocess.run(f'aria2c -q -x5 -k1M -d {dir} -o {output} {url}', shell=True)
+  assert result.returncode == 0
+  return os.path.join(tmp_dir, f'{arxiv_id}.pdf')
+
+def pdf_to_png(pdf_filename):
+  filename = quote(pdf_filename)
+  result = subprocess.run(f'pdftoppm -q -png -singlefile -scale-to-x 1200 -scale-to-y -1 {filename} {filename}', shell=True)
+  assert result.returncode == 0  # TODO
+  return f'{pdf_filename}.png'
+
+def html_to_image(html, image_filename):
+  result = imgkit.from_string(html, image_filename, options={ 'width': 1200, 'quiet': '' })
+  assert result == True  # TODO
+  return image_filename
+
+def avoid_auto_link(text):
+  """replace period to one dot leader to avoid auto link.
+  https://shkspr.mobi/blog/2015/01/how-to-stop-twitter-auto-linking-urls/"""
+  return text.replace('.', '․')
+
+def get_char_width(c):
+  return 2 if unicodedata.east_asian_width(c) in 'FWA' else 1
+
+def len_tweet(text):
+  return sum(map(get_char_width, text))
+
+def strip_tweet(text, max_length=280, dots='...'):
+  length = max_length - (len(dots) if dots else 0)
+  buf = []
+  count = 0
+  for c in text:
+    width = get_char_width(c)
+    if count + width > length:
+      return ''.join(buf) + (dots if dots else '')
+    buf.append(c)
+    count += width
+  return text
+
+def upload_first_page_to_twitter(api_v1, arxiv_id):
+  with tempfile.TemporaryDirectory() as tmp_dir:
+    pdf_filename = download_arxiv_pdf(arxiv_id, tmp_dir)
+    first_page_filename = pdf_to_png(pdf_filename)
+    if os.path.isfile(first_page_filename):
+      media = api_v1.media_upload(first_page_filename)
+      return media.media_id
+  return None
+
+def upload_translation_to_twitter(api_v1, arxiv_id, trans_texts, summary_texts):
+  html_text = generate_html(trans_texts, summary_texts)
+  with tempfile.TemporaryDirectory() as tmp_dir:
+    trans_filename = os.path.join(tmp_dir, f'{arxiv_id}.trans.jpg')
+    trans_filename = html_to_image(html_text, trans_filename)
+    if os.path.isfile(trans_filename):
+      media = api_v1.media_upload(trans_filename)
+      return media.media_id
+  return None
+
+def post_to_twitter(api_v1, api_v2, df, arxiv_tweets_df, dlc, max_summary):
+  df = df[::-1]  # reverse order
+  one_day_ago = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
+  seg = pysbd.Segmenter(language='en', clean=False)
+  for i, (arxiv_id, updated, title, summary, authors, comment, primary_category, categories, like_count, retweet_count, quote_count, replay_count, tweet_count) in enumerate(zip(df['arxiv_id'], df['updated'], df['title'], df['summary'], df['authors'], df['comment'], df['primary_category'], df['categories'], df['like_count'], df['retweet_count'], df['quote_count'], df['reply_count'], df['tweet_count'])):
+    trans = dlc.get(arxiv_id, None)
+    trans_texts, trans_ts = trans
+    trans_text = ''.join(trans_texts)
+    is_new = True if one_day_ago < datetime.datetime.fromisoformat(trans_ts) else False
+    is_new_md = '🆕' if is_new else ''
+    summary = summary.replace('\n', ' ')[:max_summary]
+    summary_texts = seg.segment(summary)
+    authors_md = ', '.join(authors)
+    categories_md = avoid_auto_link(' | '.join([c for c in [primary_category] + [c for c in categories if c != primary_category and re.match(r'\w+\.\w+$', c)]]))
+    stats_md = f'{like_count} Likes, {retweet_count} Retweets, {quote_count} Quotes, {replay_count} Replies, {tweet_count} Tweets'
+    updated_md = dateutil.parser.isoparse(updated).strftime('%d %b %Y')
+    title_md = title
+    abs_md = f'arxiv.org/abs/{arxiv_id}'
+    first_page_media_id = upload_first_page_to_twitter(api_v1, arxiv_id)
+    text = f'[{len(df)-i}/{len(df)}] {stats_md}\n{abs_md} {categories_md}, {updated_md}\n\n{is_new_md} {title_md}\n\n{authors_md}'
+    response = api_v2.create_tweet(text=strip_tweet(text, 280), user_auth=True, media_ids=[first_page_media_id] if first_page_media_id else None)
+    prev_tweet_id = response.data['id']
+    time.sleep(1)
+    translation_media_id = upload_translation_to_twitter(api_v1, arxiv_id, trans_texts, summary_texts)
+    text = f'{abs_md}\n{trans_text}'
+    response = api_v2.create_tweet(text=strip_tweet(text, 280), user_auth=True, in_reply_to_tweet_id=prev_tweet_id, media_ids=[translation_media_id] if translation_media_id else None)
+    time.sleep(1)
+    top_n_tweets = arxiv_tweets_df[arxiv_tweets_df['arxiv_id'] == arxiv_id].sort_values(by=['like_count', 'retweet_count', 'quote_count', 'reply_count'], ascending=False)
+    post_to_twitter_tweets(api_v2, prev_tweet_id, arxiv_id, top_n_tweets.head(5))
+    print('post_to_twitter: ', f'[{len(df)-i}/{len(df)}]')
+
+def post_to_twitter_tweets(api_v2, prev_tweet_id, arxiv_id, df):
+  for i, (tweet_id, expanded_text, created_at, username, name, like_count, retweet_count, quote_count, replay_count) in enumerate(zip(df['id'], df['expanded_text'], df['created_at'], df['username'], df['name'], df['like_count'], df['retweet_count'], df['quote_count'], df['reply_count'])):
+    stats_md = f'{like_count} Likes, {retweet_count} Retweets, {quote_count} Quotes, {replay_count} Replies'
+    created_at_md = dateutil.parser.isoparse(created_at).strftime('%d %b %Y')
+    abs_md = f'arxiv.org/abs/{arxiv_id}'
+    url_md = f'https://twitter.com/{username}/status/{tweet_id}'
+    text = f'({i+1}/{len(df)}) {stats_md}, {created_at_md}\n{abs_md}\n\n{url_md}\n'
+    response = api_v2.create_tweet(text=strip_tweet(text, 280), user_auth=True, in_reply_to_tweet_id=prev_tweet_id)
     time.sleep(1)
 
 def main():
   query = '"arxiv.org" -is:retweet'
   deepl_target_lang = 'JA'
-  tweepy_api = tweepy.Client(bearer_token=os.getenv('TWITTER_BEARER_TOKEN'), wait_on_rate_limit=True)
-  tweets_raw = search_recent_tweets(tweepy_api, query, since_id=None, page_limit=int(os.getenv('SEARCH_PAGE_LIMIT')))  # type: ignore
-  print(len(tweets_raw['data']), len(tweets_raw['includes']['users']), tweets_raw['meta'])
-  tweets_parsed = parse_tweets(tweets_raw)
-  print(len(tweets_parsed['tweets']), len(tweets_parsed['users']), tweets_parsed['meta'].values[0])
-  arxiv_stats = parse_arxiv(tweets_parsed['tweets'], tweets_parsed['users'], tweets_parsed['urls'])
-  print(len(arxiv_stats['arxiv_stats']), len(arxiv_stats['arxiv_ids']), len(arxiv_stats['arxiv_tweets']))
+
+  tweepy_api_v2 = tweepy.Client(
+    bearer_token=os.getenv('TWITTER_BEARER_TOKEN'),
+    consumer_key=os.getenv('TWITTER_API_KEY'),
+    consumer_secret=os.getenv('TWITTER_API_KEY_SECRET'),
+    access_token=os.getenv('TWITTER_ACCESS_TOKEN'),
+    access_token_secret=os.getenv('TWITTER_ACCESS_TOKEN_SECRET'),
+    wait_on_rate_limit=True)
+
+  tweepy_api_v1 = tweepy.API(
+    tweepy.OAuth1UserHandler(
+      consumer_key=os.getenv('TWITTER_API_KEY'),
+      consumer_secret=os.getenv('TWITTER_API_KEY_SECRET'),
+      access_token=os.getenv('TWITTER_ACCESS_TOKEN'),
+      access_token_secret=os.getenv('TWITTER_ACCESS_TOKEN_SECRET')),
+    wait_on_rate_limit=True)
+
+  # retrieve tweets by Twitter API
+  tweets_raw = search_recent_tweets(tweepy_api_v2, query, since_id=None, page_limit=int(os.getenv('SEARCH_PAGE_LIMIT')))  # type: ignore
+  print('search_recent_tweets: ', len(tweets_raw['data']), len(tweets_raw['includes']['users']), tweets_raw['meta'])
+
+  # convert tweets to DataFrame
+  tweets_dfs = convert_to_dfs(tweets_raw)
+  print('convert_to_dfs: ', len(tweets_dfs['tweets']), len(tweets_dfs['users']), tweets_dfs['meta'].values.tolist())
+
+  # analyze tweets and create stats of arxiv urls
+  arxiv_stats = get_arxiv_stats(tweets_dfs['tweets'], tweets_dfs['users'], tweets_dfs['urls'])
   arxiv_stats_df = arxiv_stats['arxiv_stats']
   arxiv_tweets_df = arxiv_stats['arxiv_tweets']
   arxiv_ids = arxiv_stats['arxiv_stats']['arxiv_id'].tolist()
-  arxiv_results = search_arxiv(arxiv_ids)
-  arxiv_results_df = pd.json_normalize(arxiv_results)
-  arxiv_df = pd.merge(arxiv_stats_df, arxiv_results_df, on='arxiv_id')
+  print('get_arxiv_stats: ', len(arxiv_stats_df), len(arxiv_ids), len(arxiv_tweets_df))
+
+  # download contents of arxiv papers
+  arxiv_contents = search_arxiv_contents(arxiv_ids)
+  arxiv_contents_df = pd.json_normalize(arxiv_contents)
+  print('search_arxiv_contents: ', len(arxiv_contents_df))
+
+  # merge stats and contents
+  arxiv_df = pd.merge(arxiv_stats_df, arxiv_contents_df, on='arxiv_id')
+
+  # translate summary text
   dlc = deeplcache.DeepLCache(deepl.Translator(os.getenv('DEEPL_AUTH_KEY')))  # type: ignore
   gcs_bucket = storage.Client().bucket(os.getenv('GCS_BUCKET_NAME'))
   try:
     dlc.load_from_gcs(gcs_bucket, 'deepl_cache.json.gz')
   except Exception as e:
     print(e)
-  notify_top_n = int(os.getenv('NOTIFY_TOP_N'))  # type: ignore
-  dlc = translate_arxiv(dlc, arxiv_stats, arxiv_results, deepl_target_lang, notify_top_n, 2000) # TODO
+  arxiv_df_top_n = arxiv_df.head(int(os.getenv('NOTIFY_TOP_N')))  # type: ignore
+  dlc = translate_arxiv(dlc, arxiv_df_top_n, deepl_target_lang, 2000) # TODO
   try:
+    dlc.clear_cache(expire_days=30)
     dlc.save_to_gcs(gcs_bucket, 'deepl_cache.json.gz')
   except Exception as e:
     print(e)
+
+  # post to Slack
   slack_api = WebClient(os.getenv('SLACK_BOT_TOKEN'))
-  post_arxiv_blocks(slack_api, os.getenv('SLACK_CHANNEL'), arxiv_df.head(notify_top_n), arxiv_tweets_df, dlc, 2000) # TODO
+  post_to_slack(slack_api, os.getenv('SLACK_CHANNEL'), arxiv_df_top_n, arxiv_tweets_df, dlc, 2000) # TODO
+
+  # post to Twitter
+  post_to_twitter(tweepy_api_v1, tweepy_api_v2, arxiv_df_top_n, arxiv_tweets_df, dlc, 2000) # TODO
+
 
 if __name__ == '__main__':
   main()
