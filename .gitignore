@@ -1,3 +1,5 @@
 .vscode
+.python-version
 venv
 __pycache__
+deepl_cache.json.gz
