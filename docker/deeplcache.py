@@ -13,11 +13,11 @@ class DeepLCache:
     if expire_days is None:
       self.cache = {}
       return
-    expire_ts = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=expire_days)
-    def is_expire(item):
+    n_days_ago = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=expire_days)
+    def is_not_expire(item):
       # item is [arxiv_id, [texts, ts]]
-      return datetime.datetime.fromisoformat(item[1][1]) > expire_ts
-    self.cache = dict(filter(is_expire, self.cache.items()))
+      return datetime.datetime.fromisoformat(item[1][1]) > n_days_ago
+    self.cache = dict(filter(is_not_expire, self.cache.items()))
 
   def __repr__(self):
     return repr(self.cache) # TODO
