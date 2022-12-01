@@ -6,3 +6,4 @@ arxiv==1.4.2
 deepl==1.11.0
 pysbd==0.3.4
 slack-sdk==3.19.4
+imgkit==1.2.2
