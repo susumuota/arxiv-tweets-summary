@@ -1,15 +1,23 @@
 import datetime
 import gzip
 import json
+import os
+import tempfile
 
 class DeepLCache:
   def __init__(self, translator):
     self.translator = translator
     self.cache = {}
 
-  def clear_cache(self):
-    # TODO: specify datetime
-    self.cache = {}
+  def clear_cache(self, expire_days=None):
+    if expire_days is None:
+      self.cache = {}
+      return
+    expire_ts = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=expire_days)
+    def is_expire(item):
+      # item is [arxiv_id, [texts, ts]]
+      return datetime.datetime.fromisoformat(item[1][1]) > expire_ts
+    self.cache = dict(filter(is_expire, self.cache.items()))
 
   def __repr__(self):
     return repr(self.cache) # TODO
@@ -23,20 +31,28 @@ class DeepLCache:
       json.dump(self.cache, f)
 
   def load_from_s3(self, s3_bucket, filename):
-    s3_bucket.download_file(filename, filename)
-    self.load(filename)
+    with tempfile.TemporaryDirectory() as tmpdir:
+      tmpfilename = os.path.join(tmpdir, filename)
+      s3_bucket.download_file(filename, tmpfilename)
+      self.load(tmpfilename)
 
   def save_to_s3(self, s3_bucket, filename):
-    self.save(filename)
-    s3_bucket.upload_file(filename, filename)
+    with tempfile.TemporaryDirectory() as tmpdir:
+      tmpfilename = os.path.join(tmpdir, filename)
+      self.save(tmpfilename)
+      s3_bucket.upload_file(filename, tmpfilename)
 
   def load_from_gcs(self, gcs_bucket, filename):
-    gcs_bucket.blob(filename).download_to_filename(filename)
-    self.load(filename)
+    with tempfile.TemporaryDirectory() as tmpdir:
+      tmpfilename = os.path.join(tmpdir, filename)
+      gcs_bucket.blob(filename).download_to_filename(tmpfilename)
+      self.load(tmpfilename)
 
   def save_to_gcs(self, gcs_bucket, filename):
-    self.save(filename)
-    gcs_bucket.blob(filename).upload_from_filename(filename)
+    with tempfile.TemporaryDirectory() as tmpdir:
+      tmpfilename = os.path.join(tmpdir, filename)
+      self.save(tmpfilename)
+      gcs_bucket.blob(filename).upload_from_filename(tmpfilename)
 
   def get(self, key, default=None):
     return self.cache.get(key, default)
