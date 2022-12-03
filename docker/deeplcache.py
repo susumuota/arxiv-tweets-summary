@@ -9,15 +9,15 @@ class DeepLCache:
     self.translator = translator
     self.cache = {}
 
-  def clear_cache(self, expire_days=None):
-    if expire_days is None:
+  def clear_cache(self, expire_timedelta=None):
+    if expire_timedelta is None:
       self.cache = {}
       return
-    n_days_ago = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=expire_days)
+    expire_dt = datetime.datetime.now(datetime.timezone.utc) - expire_timedelta
     def is_not_expire(item):
       # item is [arxiv_id, [texts, ts]]
-      return datetime.datetime.fromisoformat(item[1][1]) > n_days_ago
-    self.cache = dict(filter(is_not_expire, self.cache.items()))
+      return datetime.datetime.fromisoformat(item[1][1]) > expire_dt
+    self.cache = dict(filter(is_not_expire, self.cache.items()))  # type: ignore
 
   def __repr__(self):
     return repr(self.cache) # TODO
