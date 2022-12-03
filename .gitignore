@@ -2,5 +2,5 @@
 .vscode
 .DS_Store
 __pycache__
-deepl_cache.json.gz
+*.json.gz
 venv
