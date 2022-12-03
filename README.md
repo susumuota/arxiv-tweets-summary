@@ -1,5 +1,11 @@
 # arXiv Tweets Summary
 
+Summarize top 20 most popular arXiv papers on Twitter in the last 7 days. And post them to Slack / Twitter.
+
+## Google Cloud Run
+
+This system is running on Google Cloud Run jobs.
+
 - https://cloud.google.com/build/docs/build-push-docker-image
 - https://cloud.google.com/run/docs/create-jobs#command-line
 - https://cloud.google.com/scheduler/docs/creating#gcloud
@@ -67,7 +73,7 @@ export TWITTER_ACCESS_TOKEN="secret info"
 export TWITTER_ACCESS_TOKEN_SECRET="secret info"
 export DEEPL_AUTH_KEY="secret info"
 export SLACK_BOT_TOKEN="secret info"
-export SEARCH_PAGE_LIMIT="5"  # 150 on production env
+export SEARCH_PAGE_LIMIT="5"  # 200 on production env
 export NOTIFY_TOP_N="5"       # 20 on production env
 export SLACK_CHANNEL="#test"  # #anywhere on production env
 ```
@@ -240,9 +246,9 @@ gcloud secrets get-iam-policy "SLACK_BOT_TOKEN"
 - https://codelabs.developers.google.com/cloud-run-jobs-and-cloud-scheduler#3
 
 ```sh
+gcloud services enable artifactregistry.googleapis.com
 export REPOSITORY="arxiv-tweets-summary"
 export REGION="us-central1"
-gcloud services enable artifactregistry.googleapis.com
 gcloud artifacts repositories create $REPOSITORY \
   --repository-format="docker" \
   --location=$REGION
@@ -259,12 +265,13 @@ gcloud artifacts repositories list
 - https://codelabs.developers.google.com/cloud-run-jobs-and-cloud-scheduler#3
 
 ```sh
-export TAG_NAME="latest"
 gcloud services enable cloudbuild.googleapis.com
+export TAG_NAME="latest"
 gcloud builds submit \
   --region=$REGION \
   --tag="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${TAG_NAME}"
 gcloud builds list --region=$REGION
+gcloud artifacts repositories list
 # gcloud services disable cloudbuild.googleapis.com
 # unset TAG_NAME
 ```
@@ -276,7 +283,6 @@ gcloud builds list --region=$REGION
 - https://cloud.google.com/build/docs/building/build-containers#run_the_docker_image
 - https://cloud.google.com/artifact-registry/pricing
 - https://support.terra.bio/hc/en-us/articles/4408985788187-How-to-configure-GCR-Artifact-Registry-to-prevent-egress-charges
-
 
 ```sh
 gcloud auth configure-docker ${REGION}-docker.pkg.dev
@@ -306,14 +312,14 @@ docker images
 Change parameters for production env.
 
 ```sh
-export SEARCH_PAGE_LIMIT="150"    # 1 on development env
+export SEARCH_PAGE_LIMIT="200"    # 5 on development env
 export NOTIFY_TOP_N="20"          # 5 on development env
 export SLACK_CHANNEL="#anywhere"  # #test on development env
 ```
 
 ```sh
-export RUN_JOB_NAME="arxiv-tweets-summary-job-1"
 gcloud services enable run.googleapis.com
+export RUN_JOB_NAME="arxiv-tweets-summary-job-1"
 gcloud beta run jobs create $RUN_JOB_NAME \
   --image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${TAG_NAME}" \
   --region=$REGION \
@@ -329,8 +335,11 @@ gcloud beta run jobs create $RUN_JOB_NAME \
   --set-env-vars="NOTIFY_TOP_N=${NOTIFY_TOP_N}" \
   --set-env-vars="SLACK_CHANNEL=${SLACK_CHANNEL}" \
   --set-env-vars="GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" \
-  --max-retries=0
+  --max-retries=0 \
+  --task-timeout="30m" \
+  --memory="1024Mi"
 gcloud beta run jobs list
+gcloud beta run jobs describe $RUN_JOB_NAME --region=$REGION
 # gcloud beta run jobs delete $RUN_JOB_NAME --region=$REGION
 # gcloud services disable run.googleapis.com
 # unset RUN_JOB_NAME
@@ -366,6 +375,7 @@ gcloud scheduler jobs create http $SCHEDULER_JOB_NAME \
   --http-method="POST" \
   --oauth-service-account-email="${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com"
 gcloud scheduler jobs list --location=$REGION
+gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --location=$REGION
 # gcloud scheduler jobs delete $SCHEDULER_JOB_NAME --location=$REGION
 # gcloud services disable cloudscheduler.googleapis.com
 # unset SCHEDULER_JOB_NAME
