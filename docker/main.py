@@ -218,17 +218,17 @@ def get_arxiv_contents(id_list, chunk_size=100):
   return [arxiv_result_to_dict(r) for r in rs]
 
 def translate_arxiv(dlc, df, target_lang, max_summary):
-    seg = pysbd.Segmenter(language='en', clean=False)
-    print('translate_arxiv: before: ', len(dlc.cache))
-    print(dlc.translator.get_usage())
-    for arxiv_id, summary in zip(df['arxiv_id'], df['summary']):
-      summary = summary.replace('\n', ' ')[:max_summary]
-      summary_texts = seg.segment(summary)
-      trans_texts, trans_ts = dlc.translate_text(summary_texts, target_lang, arxiv_id)
-      print('translate_arxiv: ', arxiv_id, sum([len(s) for s in summary_texts]), sum([len(t) for t in trans_texts]), trans_ts)
-    print('translate_arxiv: after: ', len(dlc.cache))
-    print(dlc.translator.get_usage())
-    return dlc
+  seg = pysbd.Segmenter(language='en', clean=False)
+  print('translate_arxiv: before: ', len(dlc.cache))
+  print(dlc.translator.get_usage())
+  for arxiv_id, summary in zip(df['arxiv_id'], df['summary']):
+    summary = summary.replace('\n', ' ')[:max_summary]
+    summary_texts = seg.segment(summary)
+    trans_texts, trans_ts = dlc.translate_text(summary_texts, target_lang, arxiv_id)
+    print('translate_arxiv: ', arxiv_id, sum([len(s) for s in summary_texts]), sum([len(t) for t in trans_texts]), trans_ts)
+  print('translate_arxiv: after: ', len(dlc.cache))
+  print(dlc.translator.get_usage())
+  return dlc
 
 def post_to_slack(api, channel, df, arxiv_tweets_df, dlc, max_summary):
   df = df[::-1]  # reverse order
@@ -296,7 +296,7 @@ def download_arxiv_pdf(arxiv_id, tmp_dir):
   output = quote(f'{arxiv_id}.pdf')
   url = quote(f'https://arxiv.org/pdf/{arxiv_id}.pdf')
   result = subprocess.run(f'aria2c -q -x5 -k1M -d {dir} -o {output} {url}', shell=True)
-  assert result.returncode == 0
+  assert result.returncode == 0  # TODO
   return os.path.join(tmp_dir, f'{arxiv_id}.pdf')
 
 def pdf_to_png(pdf_filename):

@@ -1,6 +1,6 @@
 # arXiv Tweets Summary
 
-Summarize top 20 most popular arXiv papers on Twitter in the last 7 days. And post them to Slack / Twitter.
+Summarize top 20 most popular arXiv papers on Twitter in the last 7 days and post them to Slack / Twitter.
 
 ## Google Cloud Run
 
@@ -381,7 +381,7 @@ gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --location=$REGION
 # unset SCHEDULER_JOB_NAME
 ```
 
-```
+```sh
 gcloud logging read "resource.type=cloud_run_job OR resource.type=cloud_scheduler_job" \
   --limit 10 | egrep "textPayload|message"
 ```
