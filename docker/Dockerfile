@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Susumu OTA <1632335+susumuota@users.noreply.github.com>
+#
+# SPDX-License-Identifier: MIT
+
 FROM python:3.10-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

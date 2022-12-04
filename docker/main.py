@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Susumu OTA <1632335+susumuota@users.noreply.github.com>
+#
+# SPDX-License-Identifier: MIT
+
 from datetime import datetime, timedelta, timezone
 import gzip
 from itertools import zip_longest
@@ -273,7 +277,7 @@ def post_to_slack(api, channel, df, arxiv_tweets_df, dlc, max_summary):
     blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*Links*: {abs_md}, {pdf_md}, {tweets_md}\n\n*Authors*: {authors_md}{comment_md}'}}]
     response = api.chat_postMessage(channel=channel, text=title_md, blocks=blocks, thread_ts=ts)
     time.sleep(1)
-    top_n_tweets = arxiv_tweets_df.query(f'arxiv_id == "{arxiv_id}" and (like_count + retweet_count + quote_count + reply_count) > 4').sort_values(by=['like_count', 'retweet_count', 'quote_count', 'reply_count'], ascending=False).head(5) # TODO
+    top_n_tweets = arxiv_tweets_df.query(f'arxiv_id == "{arxiv_id}" and like_count > 0 and (like_count + retweet_count + quote_count + reply_count) > 4').sort_values(by=['like_count', 'retweet_count', 'quote_count', 'reply_count'], ascending=False).head(5) # TODO
     post_to_slack_tweets(api, channel, ts, top_n_tweets)
     print('post_to_slack: ', f'[{len(df)-i}/{len(df)}]')
 

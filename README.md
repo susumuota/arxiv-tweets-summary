@@ -385,3 +385,11 @@ gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --location=$REGION
 gcloud logging read "resource.type=cloud_run_job OR resource.type=cloud_scheduler_job" \
   --limit 10 | egrep "textPayload|message"
 ```
+
+## License
+
+MIT License, See LICENSE file.
+
+## Author
+
+Susumu OTA

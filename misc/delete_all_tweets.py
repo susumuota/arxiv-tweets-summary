@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Susumu OTA <1632335+susumuota@users.noreply.github.com>
+#
+# SPDX-License-Identifier: MIT
+
 from math import inf
 import os
 
@@ -11,6 +15,8 @@ def get_oldest_tweet_ids(api_v2, user_id, max_results=100):
   oldest_tweets = []
   total_count = 0
   for response in tweepy.Paginator(api_v2.get_users_tweets, id=user_id, max_results=100, limit=inf, user_auth=True):
+    if not (response and response.data and 'result_count' in response.meta and response.meta['result_count'] > 0):  # type: ignore
+      break
     total_count += response.meta['result_count']  # type: ignore
     for tweet in response.data:  # type: ignore
       oldest_tweets.append(tweet.id)
@@ -38,7 +44,7 @@ def delete_all_tweets(api_v2, user_id):
       for tweet_id in tweet_ids:
         print(f'Deleting a tweet (id: {tweet_id})...', flush=True)
         response = api_v2.delete_tweet(tweet_id, user_auth=True)
-        if response and response.data and 'deleted' in response.data and response.data['deleted'] == True:
+        if response and response.data and 'deleted' in response.data and response.data['deleted']:
           delete_count += 1
           print(f'Deleting a tweet (id: {tweet_id})...done')
         else:
