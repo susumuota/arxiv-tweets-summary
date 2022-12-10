@@ -2,6 +2,10 @@
 
 Summarize top 20 most popular arXiv papers on Twitter in the last 7 days and post them to Slack / Twitter.
 
+## Demo
+
+- https://twitter.com/susumuota
+
 ## Google Cloud Run
 
 This system is running on Google Cloud Run jobs.
@@ -20,14 +24,6 @@ gcloud projects create $PROJECT_ID
 gcloud projects list
 # gcloud projects delete $PROJECT_ID
 # unset PROJECT_ID
-```
-
-## Set the default project
-
-```sh
-gcloud config set project $PROJECT_ID
-gcloud config list
-# gcloud config unset project
 ```
 
 ## Enable billing
@@ -49,12 +45,14 @@ It should show `billingEnabled: true`.
 
 ```sh
 export GCS_BUCKET_NAME="tweets55"
+export REGION="us-central1"
 gcloud storage buckets create "gs://${GCS_BUCKET_NAME}" \
-  --location="us-central1" \
+  --project=$PROJECT_ID \
+  --location=$REGION \
   --public-access-prevention \
   --uniform-bucket-level-access
-gcloud storage buckets list | grep name
-# gcloud storage buckets delete "gs://${GCS_BUCKET_NAME}"
+gcloud storage buckets list --project=$PROJECT_ID | grep name
+# gcloud storage buckets delete "gs://${GCS_BUCKET_NAME}" --project=$PROJECT_ID
 # unset GCS_BUCKET_NAME
 ```
 
@@ -109,9 +107,9 @@ docker images
 
 ```sh
 export RUN_SERVICE_ACCOUNT="run-sa"
-gcloud iam service-accounts create $RUN_SERVICE_ACCOUNT
-gcloud iam service-accounts list
-# gcloud iam service-accounts delete $RUN_SERVICE_ACCOUNT
+gcloud iam service-accounts create $RUN_SERVICE_ACCOUNT --project=$PROJECT_ID
+gcloud iam service-accounts list --project=$PROJECT_ID
+# gcloud iam service-accounts delete $RUN_SERVICE_ACCOUNT --project=$PROJECT_ID
 # unset RUN_SERVICE_ACCOUNT
 ```
 
@@ -144,44 +142,51 @@ gcloud projects get-iam-policy $PROJECT_ID
 - https://cloud.google.com/run/docs/configuring/secrets
 
 ```sh
-gcloud services enable secretmanager.googleapis.com
+gcloud services enable secretmanager.googleapis.com --project=$PROJECT_ID
 echo -n $TWITTER_BEARER_TOKEN | gcloud secrets create "TWITTER_BEARER_TOKEN" \
+  --project=$PROJECT_ID \
   --replication-policy="automatic" \
   --data-file=-
 echo -n $TWITTER_API_KEY | gcloud secrets create "TWITTER_API_KEY" \
+  --project=$PROJECT_ID \
   --replication-policy="automatic" \
   --data-file=-
 echo -n $TWITTER_API_KEY_SECRET | gcloud secrets create "TWITTER_API_KEY_SECRET" \
+  --project=$PROJECT_ID \
   --replication-policy="automatic" \
   --data-file=-
 echo -n $TWITTER_ACCESS_TOKEN | gcloud secrets create "TWITTER_ACCESS_TOKEN" \
+  --project=$PROJECT_ID \
   --replication-policy="automatic" \
   --data-file=-
 echo -n $TWITTER_ACCESS_TOKEN_SECRET | gcloud secrets create "TWITTER_ACCESS_TOKEN_SECRET" \
+  --project=$PROJECT_ID \
   --replication-policy="automatic" \
   --data-file=-
 echo -n $DEEPL_AUTH_KEY | gcloud secrets create "DEEPL_AUTH_KEY" \
+  --project=$PROJECT_ID \
   --replication-policy="automatic" \
   --data-file=-
 echo -n $SLACK_BOT_TOKEN | gcloud secrets create "SLACK_BOT_TOKEN" \
+  --project=$PROJECT_ID \
   --replication-policy="automatic" \
   --data-file=-
-gcloud secrets list
-gcloud secrets versions access 1 --secret="TWITTER_BEARER_TOKEN"
-gcloud secrets versions access 1 --secret="TWITTER_API_KEY"
-gcloud secrets versions access 1 --secret="TWITTER_API_KEY_SECRET"
-gcloud secrets versions access 1 --secret="TWITTER_ACCESS_TOKEN"
-gcloud secrets versions access 1 --secret="TWITTER_ACCESS_TOKEN_SECRET"
-gcloud secrets versions access 1 --secret="DEEPL_AUTH_KEY"
-gcloud secrets versions access 1 --secret="SLACK_BOT_TOKEN"
-# gcloud secrets delete "TWITTER_BEARER_TOKEN"
-# gcloud secrets delete "TWITTER_API_KEY"
-# gcloud secrets delete "TWITTER_API_KEY_SECRET"
-# gcloud secrets delete "TWITTER_ACCESS_TOKEN"
-# gcloud secrets delete "TWITTER_ACCESS_TOKEN_SECRET"
-# gcloud secrets delete "DEEPL_AUTH_KEY"
-# gcloud secrets delete "SLACK_BOT_TOKEN"
-# gcloud services disable secretmanager.googleapis.com
+gcloud secrets list --project=$PROJECT_ID
+gcloud secrets versions access 1 --secret="TWITTER_BEARER_TOKEN" --project=$PROJECT_ID
+gcloud secrets versions access 1 --secret="TWITTER_API_KEY" --project=$PROJECT_ID
+gcloud secrets versions access 1 --secret="TWITTER_API_KEY_SECRET" --project=$PROJECT_ID
+gcloud secrets versions access 1 --secret="TWITTER_ACCESS_TOKEN" --project=$PROJECT_ID
+gcloud secrets versions access 1 --secret="TWITTER_ACCESS_TOKEN_SECRET" --project=$PROJECT_ID
+gcloud secrets versions access 1 --secret="DEEPL_AUTH_KEY" --project=$PROJECT_ID
+gcloud secrets versions access 1 --secret="SLACK_BOT_TOKEN" --project=$PROJECT_ID
+# gcloud secrets delete "TWITTER_BEARER_TOKEN" --project=$PROJECT_ID
+# gcloud secrets delete "TWITTER_API_KEY" --project=$PROJECT_ID
+# gcloud secrets delete "TWITTER_API_KEY_SECRET" --project=$PROJECT_ID
+# gcloud secrets delete "TWITTER_ACCESS_TOKEN" --project=$PROJECT_ID
+# gcloud secrets delete "TWITTER_ACCESS_TOKEN_SECRET" --project=$PROJECT_ID
+# gcloud secrets delete "DEEPL_AUTH_KEY" --project=$PROJECT_ID
+# gcloud secrets delete "SLACK_BOT_TOKEN" --project=$PROJECT_ID
+# gcloud services disable secretmanager.googleapis.com --project=$PROJECT_ID
 ```
 
 ## Add roles to secrets to be accessed by service account
@@ -190,52 +195,66 @@ gcloud secrets versions access 1 --secret="SLACK_BOT_TOKEN"
 
 ```sh
 gcloud secrets add-iam-policy-binding "TWITTER_BEARER_TOKEN" \
+  --project=$PROJECT_ID \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 gcloud secrets add-iam-policy-binding "TWITTER_API_KEY" \
+  --project=$PROJECT_ID \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 gcloud secrets add-iam-policy-binding "TWITTER_API_KEY_SECRET" \
+  --project=$PROJECT_ID \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 gcloud secrets add-iam-policy-binding "TWITTER_ACCESS_TOKEN" \
+  --project=$PROJECT_ID \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 gcloud secrets add-iam-policy-binding "TWITTER_ACCESS_TOKEN_SECRET" \
+  --project=$PROJECT_ID \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 gcloud secrets add-iam-policy-binding "DEEPL_AUTH_KEY" \
+  --project=$PROJECT_ID \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 gcloud secrets add-iam-policy-binding "SLACK_BOT_TOKEN" \
+  --project=$PROJECT_ID \
   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
-gcloud secrets get-iam-policy "TWITTER_BEARER_TOKEN"
-gcloud secrets get-iam-policy "TWITTER_API_KEY"
-gcloud secrets get-iam-policy "TWITTER_API_KEY_SECRET"
-gcloud secrets get-iam-policy "TWITTER_ACCESS_TOKEN"
-gcloud secrets get-iam-policy "TWITTER_ACCESS_TOKEN_SECRET"
-gcloud secrets get-iam-policy "DEEPL_AUTH_KEY"
-gcloud secrets get-iam-policy "SLACK_BOT_TOKEN"
+gcloud secrets get-iam-policy "TWITTER_BEARER_TOKEN" --project=$PROJECT_ID
+gcloud secrets get-iam-policy "TWITTER_API_KEY" --project=$PROJECT_ID
+gcloud secrets get-iam-policy "TWITTER_API_KEY_SECRET" --project=$PROJECT_ID
+gcloud secrets get-iam-policy "TWITTER_ACCESS_TOKEN" --project=$PROJECT_ID
+gcloud secrets get-iam-policy "TWITTER_ACCESS_TOKEN_SECRET" --project=$PROJECT_ID
+gcloud secrets get-iam-policy "DEEPL_AUTH_KEY" --project=$PROJECT_ID
+gcloud secrets get-iam-policy "SLACK_BOT_TOKEN" --project=$PROJECT_ID
 # gcloud secrets remove-iam-policy-binding "TWITTER_BEARER_TOKEN" \
+#   --project=$PROJECT_ID \
 #   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
 #   --role="roles/secretmanager.secretAccessor"
 # gcloud secrets remove-iam-policy-binding "TWITTER_API_KEY" \
+#   --project=$PROJECT_ID \
 #   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
 #   --role="roles/secretmanager.secretAccessor"
 # gcloud secrets remove-iam-policy-binding "TWITTER_API_KEY_SECRET" \
+#   --project=$PROJECT_ID \
 #   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
 #   --role="roles/secretmanager.secretAccessor"
 # gcloud secrets remove-iam-policy-binding "TWITTER_ACCESS_TOKEN" \
+#   --project=$PROJECT_ID \
 #   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
 #   --role="roles/secretmanager.secretAccessor"
 # gcloud secrets remove-iam-policy-binding "TWITTER_ACCESS_TOKEN_SECRET" \
+#   --project=$PROJECT_ID \
 #   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
 #   --role="roles/secretmanager.secretAccessor"
 # gcloud secrets remove-iam-policy-binding "DEEPL_AUTH_KEY" \
+#   --project=$PROJECT_ID \
 #   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
 #   --role="roles/secretmanager.secretAccessor"
 # gcloud secrets remove-iam-policy-binding "SLACK_BOT_TOKEN" \
+#   --project=$PROJECT_ID \
 #   --member="serviceAccount:${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
 #   --role="roles/secretmanager.secretAccessor"
 ```
@@ -246,15 +265,15 @@ gcloud secrets get-iam-policy "SLACK_BOT_TOKEN"
 - https://codelabs.developers.google.com/cloud-run-jobs-and-cloud-scheduler#3
 
 ```sh
-gcloud services enable artifactregistry.googleapis.com
+gcloud services enable artifactregistry.googleapis.com --project=$PROJECT_ID
 export REPOSITORY="arxiv-tweets-summary"
-export REGION="us-central1"
 gcloud artifacts repositories create $REPOSITORY \
+  --project=$PROJECT_ID \
   --repository-format="docker" \
   --location=$REGION
-gcloud artifacts repositories list
-# gcloud artifacts repositories delete $REPOSITORY --location=$REGION
-# gcloud services disable artifactregistry.googleapis.com
+gcloud artifacts repositories list --project=$PROJECT_ID
+# gcloud artifacts repositories delete $REPOSITORY --project=$PROJECT_ID --location=$REGION
+# gcloud services disable artifactregistry.googleapis.com --project=$PROJECT_ID
 # unset REPOSITORY REGION
 ```
 
@@ -265,14 +284,15 @@ gcloud artifacts repositories list
 - https://codelabs.developers.google.com/cloud-run-jobs-and-cloud-scheduler#3
 
 ```sh
-gcloud services enable cloudbuild.googleapis.com
+gcloud services enable cloudbuild.googleapis.com --project=$PROJECT_ID
 export TAG_NAME="latest"
 gcloud builds submit \
+  --project=$PROJECT_ID \
   --region=$REGION \
   --tag="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${TAG_NAME}"
-gcloud builds list --region=$REGION
-gcloud artifacts repositories list
-# gcloud services disable cloudbuild.googleapis.com
+gcloud builds list --project=$PROJECT_ID --region=$REGION
+gcloud artifacts repositories list --project=$PROJECT_ID
+# gcloud services disable cloudbuild.googleapis.com --project=$PROJECT_ID
 # unset TAG_NAME
 ```
 
@@ -318,10 +338,11 @@ export SLACK_CHANNEL="#anywhere"  # #test on development env
 ```
 
 ```sh
-gcloud services enable run.googleapis.com
+gcloud services enable run.googleapis.com --project=$PROJECT_ID
 export RUN_JOB_NAME="arxiv-tweets-summary-job-1"
 gcloud beta run jobs create $RUN_JOB_NAME \
   --image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${TAG_NAME}" \
+  --project=$PROJECT_ID \
   --region=$REGION \
   --service-account="${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com" \
   --set-secrets="TWITTER_BEARER_TOKEN=TWITTER_BEARER_TOKEN:1" \
@@ -338,10 +359,10 @@ gcloud beta run jobs create $RUN_JOB_NAME \
   --max-retries=0 \
   --task-timeout="30m" \
   --memory="1024Mi"
-gcloud beta run jobs list
-gcloud beta run jobs describe $RUN_JOB_NAME --region=$REGION
-# gcloud beta run jobs delete $RUN_JOB_NAME --region=$REGION
-# gcloud services disable run.googleapis.com
+gcloud beta run jobs list --project=$PROJECT_ID
+gcloud beta run jobs describe $RUN_JOB_NAME --project=$PROJECT_ID --region=$REGION
+# gcloud beta run jobs delete $RUN_JOB_NAME --project=$PROJECT_ID --region=$REGION
+# gcloud services disable run.googleapis.com --project=$PROJECT_ID
 # unset RUN_JOB_NAME
 ```
 
@@ -350,12 +371,13 @@ gcloud beta run jobs describe $RUN_JOB_NAME --region=$REGION
 - https://cloud.google.com/run/docs/execute/jobs
 
 ```sh
-gcloud beta run jobs execute $RUN_JOB_NAME --region=$REGION
-gcloud beta run jobs executions list --region=$REGION
+gcloud beta run jobs execute $RUN_JOB_NAME --project=$PROJECT_ID --region=$REGION
+gcloud beta run jobs executions list --project=$PROJECT_ID --region=$REGION
 ```
 
 ```sh
 gcloud logging read "resource.type=cloud_run_job" \
+  --project=$PROJECT_ID \
   --limit 10 | egrep "textPayload|message"
 ```
 
@@ -366,23 +388,25 @@ gcloud logging read "resource.type=cloud_run_job" \
 
 ```sh
 export SCHEDULER_JOB_NAME="arxiv-tweets-summary-job-everyday-9am"
-gcloud services enable cloudscheduler.googleapis.com
+gcloud services enable cloudscheduler.googleapis.com --project=$PROJECT_ID
 gcloud scheduler jobs create http $SCHEDULER_JOB_NAME \
+  --project=$PROJECT_ID \
   --location=$REGION \
   --schedule="0 9 * * *" \
   --time-zone "Asia/Tokyo" \
   --uri="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${RUN_JOB_NAME}:run" \
   --http-method="POST" \
   --oauth-service-account-email="${RUN_SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com"
-gcloud scheduler jobs list --location=$REGION
-gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --location=$REGION
-# gcloud scheduler jobs delete $SCHEDULER_JOB_NAME --location=$REGION
-# gcloud services disable cloudscheduler.googleapis.com
+gcloud scheduler jobs list --project=$PROJECT_ID --location=$REGION
+gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --project=$PROJECT_ID --location=$REGION
+# gcloud scheduler jobs delete $SCHEDULER_JOB_NAME --project=$PROJECT_ID --location=$REGION
+# gcloud services disable cloudscheduler.googleapis.com --project=$PROJECT_ID
 # unset SCHEDULER_JOB_NAME
 ```
 
 ```sh
 gcloud logging read "resource.type=cloud_run_job OR resource.type=cloud_scheduler_job" \
+  --project=$PROJECT_ID \
   --limit 10 | egrep "textPayload|message"
 ```
 
