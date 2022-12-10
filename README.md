@@ -2,6 +2,10 @@
 
 Summarize top 20 most popular arXiv papers on Twitter in the last 7 days and post them to Slack / Twitter.
 
+## Demo
+
+- https://twitter.com/susumuota
+
 ## Google Cloud Run
 
 This system is running on Google Cloud Run jobs.
