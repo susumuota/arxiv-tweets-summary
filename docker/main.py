@@ -137,13 +137,14 @@ def convert_to_dfs(tweets):
     if field in df.columns:
       df[['id', field]].apply(lambda x: [results.append({'id': x[0], field: u}) for u in x[1]] if type(x[1]) is list else None, axis=1)
     results_df = pd.json_normalize(results)
-    results_df = results_df.rename(columns={c: re.sub(f'{field}.', r'', c) if c != f'{field}.id' else c for c in results_df.columns}) # 'id' must be tweet id
+    # 'id' must be tweet id
+    results_df = results_df.rename(columns={c: re.sub(f'{field}.', r'', c) if c != f'{field}.id' else c for c in results_df.columns}) # type: ignore
     return results_df
   meta_df = pd.json_normalize(tweets['meta'])
   users_df = pd.json_normalize(tweets['includes']['users'])
   users_df = users_df.rename(columns={'id': 'author_id'}) # 'id' must be tweet id
   tweets_df = pd.json_normalize(tweets['data'])
-  tweets_df = tweets_df.rename(columns={c: re.sub(r'public_metrics\.|entities\.', r'', c) for c in tweets_df.columns})
+  tweets_df = tweets_df.rename(columns={c: re.sub(r'public_metrics\.|entities\.', r'', c) for c in tweets_df.columns}) # type: ignore
   fields = ['urls', 'hashtags', 'mentions', 'annotations', 'cashtags', 'referenced_tweets']
   results = {'meta': meta_df, 'users': users_df}
   for f in fields:
@@ -358,6 +359,9 @@ def post_to_twitter(api_v1, api_v2, df, arxiv_tweets_df, dlc, max_summary):
   seg = pysbd.Segmenter(language='en', clean=False)
   for i, (arxiv_id, updated, title, summary, authors, comment, primary_category, categories, like_count, retweet_count, quote_count, replay_count, tweet_count) in enumerate(zip(df['arxiv_id'], df['updated'], df['title'], df['summary'], df['authors'], df['comment'], df['primary_category'], df['categories'], df['like_count'], df['retweet_count'], df['quote_count'], df['reply_count'], df['tweet_count'])):
     trans_texts, trans_ts = dlc.get(arxiv_id, None)
+    # only post new papers
+    if not (twenty_three_hours_ago < datetime.fromisoformat(trans_ts)):
+      continue
     trans_text = ''.join(trans_texts)
     summary_texts = seg.segment(summary.replace('\n', ' ')[:max_summary])
     summary_text = ' '.join(summary_texts)
@@ -381,6 +385,8 @@ def post_to_twitter(api_v1, api_v2, df, arxiv_tweets_df, dlc, max_summary):
     except Exception as e:
       print(e)
     time.sleep(1)
+    top_n_tweets = arxiv_tweets_df.query(f'arxiv_id == "{arxiv_id}" and (like_count + retweet_count + quote_count + reply_count) > 4').sort_values(by=['like_count', 'retweet_count', 'quote_count', 'reply_count'], ascending=False).head(5) # TODO
+    prev_tweet_id = post_to_twitter_tweets(api_v2, prev_tweet_id, arxiv_id, top_n_tweets)
     media_ids = []
     translation_media_id = upload_translation_to_twitter(api_v1, arxiv_id, title_md, authors_md, abs_md, trans_texts, summary_texts)
     if translation_media_id:
@@ -391,8 +397,6 @@ def post_to_twitter(api_v1, api_v2, df, arxiv_tweets_df, dlc, max_summary):
       response = api_v2.create_tweet(text=strip_tweet(text, 280), user_auth=True, media_ids=media_ids if len(media_ids) > 0 else None, in_reply_to_tweet_id=prev_tweet_id)
     except Exception as e:
       print(e)
-    top_n_tweets = arxiv_tweets_df.query(f'arxiv_id == "{arxiv_id}" and (like_count + retweet_count + quote_count + reply_count) > 4').sort_values(by=['like_count', 'retweet_count', 'quote_count', 'reply_count'], ascending=False).head(5) # TODO
-    post_to_twitter_tweets(api_v2, prev_tweet_id, arxiv_id, top_n_tweets)
     print('post_to_twitter: ', f'[{len(df)-i}/{len(df)}]')
 
 def post_to_twitter_tweets(api_v2, prev_tweet_id, arxiv_id, df):
@@ -404,9 +408,11 @@ def post_to_twitter_tweets(api_v2, prev_tweet_id, arxiv_id, df):
     text = f'({i+1}/{len(df)}) {stats_md}, {created_at_md}\n{abs_md}\n\n{url_md}\n'
     try:
       response = api_v2.create_tweet(text=strip_tweet(text, 280), user_auth=True, in_reply_to_tweet_id=prev_tweet_id)
+      prev_tweet_id = response.data['id']
     except Exception as e:
       print(e)
     time.sleep(1)
+  return prev_tweet_id
 
 def summarize(tweepy_api_v2, query, since_id, page_limit):
   # retrieve tweets by Twitter API
