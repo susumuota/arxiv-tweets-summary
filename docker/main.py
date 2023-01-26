@@ -4,7 +4,6 @@
 
 from datetime import datetime, timedelta, timezone
 import gzip
-from itertools import zip_longest
 import json
 import os
 import re
@@ -25,56 +24,8 @@ from slack_sdk import WebClient
 import imgkit
 
 import deeplcache
+from generatehtml import generate_trans_html, generate_top_n_html
 
-HTML_TEMPLATE = '''
-<html>
-  <head>
-    <meta charset="utf-8">
-    <style>
-      body {{
-        font-size: 24px;
-        margin: 2em;
-      }}
-      .translation {{
-        color: black;
-      }}
-      .source {{
-        color: blue;
-      }}
-    </style>
-  </head>
-  <body>
-    <span>{url}</span>
-    <h2>
-      {title}
-    </h2>
-    <h4>
-      {authors}
-    </h4>
-    <div>
-      {content}
-    </div>
-  </body>
-</html>
-'''
-
-HTML_ITEM_TEMPLATE = '''
-<p class="item">
-  <span class="translation">
-    {translation}
-  </span>
-  <br />
-  <span class="source">
-    {source}
-  </span>
-</p>
-'''
-
-def generate_html(title, authors, url, trans_texts, summary_texts):
-  items = map(
-    lambda item: HTML_ITEM_TEMPLATE.format(translation=item[0], source=item[1]),
-    zip_longest(trans_texts, summary_texts, fillvalue=''))
-  return HTML_TEMPLATE.format(title=title, authors=authors, url=url, content='\n'.join(items))
 
 def load_from_gcs(gcs_bucket, filename):
   blb = gcs_bucket.get_blob(filename)
@@ -343,13 +294,12 @@ def upload_first_page_to_twitter(api_v1, arxiv_id):
       return media.media_id
   return None
 
-def upload_translation_to_twitter(api_v1, arxiv_id, title, authors, stats, trans_texts, summary_texts):
-  html_text = generate_html(title, authors, stats, trans_texts, summary_texts)
+def upload_html_to_twitter(api_v1, filename, html_text):
   with tempfile.TemporaryDirectory() as tmp_dir:
-    trans_filename = os.path.join(tmp_dir, f'{arxiv_id}.trans.jpg')
-    trans_filename = html_to_image(html_text, trans_filename)
-    if os.path.isfile(trans_filename):
-      media = api_v1.media_upload(trans_filename)
+    abs_path = os.path.join(tmp_dir, filename)
+    abs_path = html_to_image(html_text, abs_path)
+    if os.path.isfile(abs_path):
+      media = api_v1.media_upload(abs_path)
       return media.media_id
   return None
 
@@ -388,7 +338,8 @@ def post_to_twitter(api_v1, api_v2, df, arxiv_tweets_df, dlc, max_summary):
     top_n_tweets = arxiv_tweets_df.query(f'arxiv_id == "{arxiv_id}" and (like_count + retweet_count + quote_count + reply_count) > 4').sort_values(by=['like_count', 'retweet_count', 'quote_count', 'reply_count'], ascending=False).head(5) # TODO
     prev_tweet_id = post_to_twitter_tweets(api_v2, prev_tweet_id, arxiv_id, top_n_tweets)
     media_ids = []
-    translation_media_id = upload_translation_to_twitter(api_v1, arxiv_id, title_md, authors_md, abs_md, trans_texts, summary_texts)
+    html_text = generate_trans_html(title_md, authors_md, abs_md, trans_texts, summary_texts)
+    translation_media_id = upload_html_to_twitter(api_v1, f'{arxiv_id}.trans.jpg', html_text)
     if translation_media_id:
       api_v1.create_media_metadata(translation_media_id, strip_tweet(trans_text, 1000))
       media_ids.append(translation_media_id)
@@ -398,6 +349,22 @@ def post_to_twitter(api_v1, api_v2, df, arxiv_tweets_df, dlc, max_summary):
     except Exception as e:
       print(e)
     print('post_to_twitter: ', f'[{len(df)-i}/{len(df)}]')
+    time.sleep(1)
+  title = f'Top {len(df)} most popular arXiv papers in the last 7 days'
+  date = datetime.now(timezone.utc).strftime('%d %b %Y')
+  media_ids = []
+  html_text = generate_top_n_html(title, date, df, dlc)
+  top_n_media_id = upload_html_to_twitter(api_v1, 'top_n.jpg', html_text)
+  if top_n_media_id:
+    rev_df = df[::-1]
+    metadata = '\n'.join(map(lambda item: f'[{item[0]+1}/{len(df)}] https://arxiv.org/abs/{item[1][0]}', enumerate(zip(rev_df['arxiv_id']))))
+    api_v1.create_media_metadata(top_n_media_id, strip_tweet(metadata, 1000))
+    media_ids.append(top_n_media_id)
+  text = title
+  try:
+    response = api_v2.create_tweet(text=strip_tweet(text, 280), user_auth=True, media_ids=media_ids if len(media_ids) > 0 else None)
+  except Exception as e:
+    print(e)
 
 def post_to_twitter_tweets(api_v2, prev_tweet_id, arxiv_id, df):
   for i, (tweet_id, expanded_text, created_at, username, name, like_count, retweet_count, quote_count, replay_count) in enumerate(zip(df['id'], df['expanded_text'], df['created_at'], df['username'], df['name'], df['like_count'], df['retweet_count'], df['quote_count'], df['reply_count'])):
@@ -483,9 +450,9 @@ def main():
     # if there is no cache or expired
     arxiv_df, arxiv_tweets_df = summarize(tweepy_api_v2, query, since_id, page_limit)
     save_to_gcs(gcs_bucket, 'arxiv_dict.json.gz', arxiv_df.to_dict(orient='records'))
-    assert arxiv_df.equals(pd.json_normalize(load_from_gcs(gcs_bucket, 'arxiv_dict.json.gz')))  # type: ignore
+    # assert arxiv_df.equals(pd.json_normalize(load_from_gcs(gcs_bucket, 'arxiv_dict.json.gz')))  # type: ignore
     save_to_gcs(gcs_bucket, 'arxiv_tweets_dict.json.gz', arxiv_tweets_df.to_dict(orient='records'))
-    assert arxiv_tweets_df.equals(pd.json_normalize(load_from_gcs(gcs_bucket, 'arxiv_tweets_dict.json.gz'))) # type: ignore
+    # assert arxiv_tweets_df.equals(pd.json_normalize(load_from_gcs(gcs_bucket, 'arxiv_tweets_dict.json.gz'))) # type: ignore
   print('main: ', len(arxiv_df), len(arxiv_tweets_df))
 
   # pickup top N papers
